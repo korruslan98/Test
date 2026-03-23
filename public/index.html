@@ -173,7 +173,7 @@
                 </article>
                 <article>
                   <strong>3. Добавьте магазины WB и Ozon</strong>
-                  <p>Для WB нужен API-токен и ID склада, для Ozon — Client ID, API Key и warehouse_id.</p>
+                  <p>Документация WB находится на `dev.wildberries.ru`, но реальные запросы остатков отправляются на `marketplace-api.wildberries.ru`.</p>
                 </article>
                 <article>
                   <strong>4. Настройте товарные идентификаторы</strong>
@@ -210,6 +210,7 @@
         <label class="field">
           <span>URL API</span>
           <input id="moyskladBaseUrlInput" type="text" value="https://api.moysklad.ru/api/remap/1.2" required />
+          <small class="field-hint">Можно вставить ссылку из документации `dev.moysklad.ru/doc/api/remap/1.2` — сервис автоматически заменит её на API URL.</small>
         </label>
 
         <label class="field">

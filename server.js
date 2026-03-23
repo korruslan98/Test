@@ -356,11 +356,45 @@ function sanitizeState(state) {
 function normalizeMoySkladPayload(body) {
   const name = requiredString(body.name, 'Укажите название подключения МойСклад.');
   const authMode = body.authMode === 'basic' ? 'basic' : 'token';
-  const baseUrl = (body.baseUrl || MOYSKLAD_BASE_URL).trim().replace(/\/$/, '');
+  const baseUrl = normalizeMoySkladBaseUrl(body.baseUrl || MOYSKLAD_BASE_URL);
   const credential = requiredString(body.credential, 'Укажите логин или токен МойСклад.');
   const secret = authMode === 'basic' ? requiredString(body.secret, 'Укажите пароль для МойСклад.') : (body.secret || '').trim();
 
   return { name, authMode, baseUrl, credential, secret };
+}
+
+
+function normalizeMoySkladBaseUrl(value) {
+  const raw = cleanString(value) || MOYSKLAD_BASE_URL;
+  let url;
+
+  try {
+    url = new URL(raw);
+  } catch {
+    throw createHttpError(400, 'Укажите корректный URL API МойСклад, например https://api.moysklad.ru/api/remap/1.2.');
+  }
+
+  if (url.hostname === 'dev.moysklad.ru' && url.pathname.includes('/doc/api/remap/1.2')) {
+    return MOYSKLAD_BASE_URL;
+  }
+
+  if (url.pathname.includes('/doc/')) {
+    throw createHttpError(400, 'Укажите URL JSON API МойСклад. Если вы вставляете ссылку из документации, будет работать адрес https://api.moysklad.ru/api/remap/1.2.');
+  }
+
+  if (url.hostname === 'api.moysklad.ru' && (url.pathname === '' || url.pathname === '/')) {
+    url.pathname = '/api/remap/1.2';
+  }
+
+  if (!url.pathname.includes('/api/remap/1.2')) {
+    throw createHttpError(400, 'Укажите URL API МойСклад в формате https://api.moysklad.ru/api/remap/1.2.');
+  }
+
+  url.pathname = url.pathname.replace(/\/$/, '');
+  url.search = '';
+  url.hash = '';
+
+  return `${url.origin}${url.pathname}`;
 }
 
 function normalizeStorePayload(body) {
@@ -439,39 +473,41 @@ function createStoredProduct(product, source = 'moysklad') {
 }
 
 async function verifyMoySkladConnection(config) {
-  const response = await fetch(`${config.baseUrl}/entity/organization?limit=1`, {
+  const normalizedConfig = { ...config, baseUrl: normalizeMoySkladBaseUrl(config.baseUrl) };
+  const response = await fetch(`${normalizedConfig.baseUrl}/entity/organization?limit=1`, {
     method: 'GET',
-    headers: buildMoySkladHeaders(config),
+    headers: buildMoySkladHeaders(normalizedConfig),
   });
 
   if (!response.ok) {
-    const message = await safeReadText(response);
-    throw createHttpError(response.status, `Не удалось проверить МойСклад: ${message || response.statusText}`);
+    throw await createMoySkladResponseError(response, 'Не удалось проверить МойСклад');
   }
+
+  await parseMoySkladJson(response, 'Не удалось проверить МойСклад');
 }
 
 async function fetchMoySkladProducts(config) {
+  const normalizedConfig = { ...config, baseUrl: normalizeMoySkladBaseUrl(config.baseUrl) };
   const items = [];
   let offset = 0;
   const limit = 100;
 
   while (true) {
-    const url = new URL(`${config.baseUrl}/entity/assortment`);
+    const url = new URL(`${normalizedConfig.baseUrl}/entity/assortment`);
     url.searchParams.set('limit', String(limit));
     url.searchParams.set('offset', String(offset));
     url.searchParams.set('filter', 'archived=false');
 
     const response = await fetch(url, {
       method: 'GET',
-      headers: buildMoySkladHeaders(config),
+      headers: buildMoySkladHeaders(normalizedConfig),
     });
 
     if (!response.ok) {
-      const message = await safeReadText(response);
-      throw createHttpError(response.status, `Ошибка выгрузки из МойСклад: ${message || response.statusText}`);
+      throw await createMoySkladResponseError(response, 'Ошибка выгрузки из МойСклад');
     }
 
-    const data = await response.json();
+    const data = await parseMoySkladJson(response, 'Ошибка выгрузки из МойСклад');
     const rows = Array.isArray(data.rows) ? data.rows : [];
     items.push(
       ...rows
@@ -497,18 +533,80 @@ async function fetchMoySkladProducts(config) {
   return items;
 }
 
+
+async function parseMoySkladJson(response, context) {
+  const text = await safeReadText(response);
+  const trimmed = text.trim();
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+  if (!trimmed) {
+    return {};
+  }
+
+  if (looksLikeHtml(trimmed) || !contentType.includes('application/json')) {
+    throw createHttpError(502, `${context}: МойСклад вернул HTML вместо JSON. Проверьте URL API — нужен https://api.moysklad.ru/api/remap/1.2, а не страница документации.`);
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    throw createHttpError(502, `${context}: МойСклад вернул некорректный JSON.`);
+  }
+}
+
+async function createMoySkladResponseError(response, context) {
+  const text = await safeReadText(response);
+  const detail = explainMoySkladResponse(text) || response.statusText;
+  return createHttpError(response.status, `${context}: ${detail}`);
+}
+
+function explainMoySkladResponse(text) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (looksLikeHtml(trimmed)) {
+    return 'МойСклад вернул HTML вместо JSON. Проверьте URL API — нужен https://api.moysklad.ru/api/remap/1.2, а не ссылка на документацию.';
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed.errors) && parsed.errors.length) {
+      return parsed.errors.map((item) => item.error || item.code).filter(Boolean).join('; ');
+    }
+
+    if (typeof parsed.error === 'string') {
+      return parsed.error;
+    }
+
+    if (typeof parsed.message === 'string') {
+      return parsed.message;
+    }
+  } catch {
+    return trimmed.slice(0, 300);
+  }
+
+  return trimmed.slice(0, 300);
+}
+
+function looksLikeHtml(value) {
+  const normalized = value.trim().toLowerCase();
+  return normalized.startsWith('<!doctype') || normalized.startsWith('<html') || normalized.startsWith('<body') || normalized.startsWith('<');
+}
+
 function buildMoySkladHeaders(config) {
   if (config.authMode === 'basic') {
     const credentials = Buffer.from(`${config.credential}:${config.secret}`).toString('base64');
     return {
       Authorization: `Basic ${credentials}`,
-      Accept: 'application/json',
+      Accept: 'application/json;charset=utf-8',
     };
   }
 
   return {
     Authorization: `Bearer ${config.credential}`,
-    Accept: 'application/json',
+    Accept: 'application/json;charset=utf-8',
   };
 }
 

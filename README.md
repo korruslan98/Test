@@ -42,7 +42,7 @@ npm run dev
 ### 1. Подключить МойСклад
 В интерфейсе нажмите **«Подключить МойСклад»** и заполните:
 - `Название подключения`;
-- `URL API` — обычно `https://api.moysklad.ru/api/remap/1.2`;
+- `URL API` — обычно `https://api.moysklad.ru/api/remap/1.2`; если вставите ссылку из документации `https://dev.moysklad.ru/doc/api/remap/1.2`, сервис автоматически заменит её на правильный API URL;
 - `Режим авторизации`:
   - `Bearer token`, если используете токен;
   - `Логин / пароль`, если используете basic auth.
@@ -59,7 +59,7 @@ npm run dev
 Нужно указать:
 - название магазина;
 - `ID склада`;
-- `WB API токен`.
+- `WB API токен`. Документация WB находится на `https://dev.wildberries.ru`, но реальные запросы по Marketplace API идут на `https://marketplace-api.wildberries.ru`.
 
 #### Для Ozon
 Нужно указать:
