@@ -516,7 +516,7 @@ async function fetchMoySkladProducts(config) {
           sourceId: row.id,
           name: row.name || row.article || row.code || row.id,
           sku: row.code || row.article || row.id,
-          stock: normalizeStock(row.stock ?? row.quantity ?? 0),
+          stock: normalizeImportedStock(row.stock ?? row.quantity ?? 0),
           marketplaces: {
             wb: { enabled: false, sku: '', chrtId: '' },
             ozon: { enabled: false, offerId: '', productId: '', warehouseId: '' },
@@ -746,6 +746,14 @@ function requiredString(value, message) {
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeImportedStock(value) {
+  const stock = Number(value);
+  if (!Number.isFinite(stock)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(stock));
 }
 
 function normalizeStock(value) {
