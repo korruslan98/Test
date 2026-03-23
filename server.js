@@ -10,6 +10,7 @@ const STATE_FILE = path.join(DATA_DIR, 'app-state.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MOYSKLAD_BASE_URL = 'https://api.moysklad.ru/api/remap/1.2';
 const WB_API_URL = 'https://marketplace-api.wildberries.ru';
+const WB_CONTENT_API_URL = 'https://content-api.wildberries.ru';
 const OZON_API_URL = 'https://api-seller.ozon.ru';
 const CHUNK_SIZE = 1000;
 const AUTO_SYNC_INTERVAL_MS = 15 * 60 * 1000;
@@ -676,21 +677,11 @@ async function runSyncJob(trigger = 'manual') {
 }
 
 async function syncWildberriesStore(store, products) {
-  const prepared = products.map((product) => {
-    const mapping = product.marketplaces.wb || {};
-    if (!mapping.sku && !mapping.chrtId) {
-      return { productId: product.id, type: 'skip', message: 'У товара не указан WB SKU или chrtId.' };
-    }
-
-    return {
-      productId: product.id,
-      stock: {
-        amount: normalizeStock(product.stock),
-        ...(mapping.sku ? { sku: mapping.sku } : {}),
-        ...(mapping.chrtId ? { chrtId: Number(mapping.chrtId) } : {}),
-      },
-    };
-  });
+  const vendorCodes = products
+    .map((product) => product.marketplaces?.wb?.sku)
+    .filter((value) => typeof value === 'string' && value.trim().length > 0);
+  const wbCardMap = await fetchWbCardMapByVendorCodes(store, vendorCodes);
+  const prepared = products.flatMap((product) => buildWbStockEntries(product, wbCardMap));
 
   const valid = prepared.filter((item) => item.stock);
   const skipped = prepared.filter((item) => item.type === 'skip');
@@ -718,6 +709,116 @@ async function syncWildberriesStore(store, products) {
   }
 
   return { successIds, failures, skipped };
+}
+
+function buildWbStockEntries(product, wbCardMap) {
+  const mapping = product.marketplaces.wb || {};
+  if (mapping.chrtId) {
+    return [
+      {
+        productId: product.id,
+        stock: {
+          amount: normalizeStock(product.stock),
+          chrtId: Number(mapping.chrtId),
+        },
+      },
+    ];
+  }
+
+  if (!mapping.sku) {
+    return [{ productId: product.id, type: 'skip', message: 'У товара не указан WB артикул продавца или chrtId.' }];
+  }
+
+  const resolvedSkus = wbCardMap.get(mapping.sku);
+  if (resolvedSkus?.length) {
+    return resolvedSkus.map((resolved) => ({
+      productId: product.id,
+      stock: {
+        amount: normalizeStock(product.stock),
+        ...(resolved.sku ? { sku: resolved.sku } : {}),
+        ...(resolved.chrtId ? { chrtId: Number(resolved.chrtId) } : {}),
+      },
+    }));
+  }
+
+  return [
+    {
+      productId: product.id,
+      stock: {
+        amount: normalizeStock(product.stock),
+        sku: mapping.sku,
+      },
+    },
+  ];
+}
+
+async function fetchWbCardMapByVendorCodes(store, vendorCodes) {
+  const remaining = new Set(vendorCodes);
+  const cardMap = new Map();
+  let cursor = { limit: 100 };
+
+  while (remaining.size) {
+    const response = await fetch(`${WB_CONTENT_API_URL}/content/v2/get/cards/list`, {
+      method: 'POST',
+      headers: {
+        Authorization: store.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        settings: {
+          cursor,
+          filter: {
+            withPhoto: -1,
+          },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      break;
+    }
+
+    const data = await safeReadJson(response);
+    const cards = Array.isArray(data?.cards) ? data.cards : [];
+    if (!cards.length) {
+      break;
+    }
+
+    for (const card of cards) {
+      const vendorCode = card.vendorCode;
+      if (!vendorCode || !remaining.has(vendorCode)) {
+        continue;
+      }
+
+      const entries = (card.sizes || [])
+        .flatMap((size) =>
+          (size.skus || []).map((sku) => ({
+            sku,
+            chrtId: size.chrtID || size.chrtId || null,
+          })),
+        )
+        .filter((entry) => entry.sku || entry.chrtId);
+
+      if (entries.length) {
+        cardMap.set(vendorCode, entries);
+        remaining.delete(vendorCode);
+      }
+    }
+
+    const updatedAt = data?.cursor?.updatedAt;
+    const nmID = data?.cursor?.nmID;
+    if (!updatedAt || !nmID) {
+      break;
+    }
+
+    cursor = {
+      limit: 100,
+      updatedAt,
+      nmID,
+    };
+  }
+
+  return cardMap;
 }
 
 async function syncOzonStore(store, products) {

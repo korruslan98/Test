@@ -321,6 +321,9 @@ function openProductModal(product = null) {
     document.getElementById('ozonOfferIdInput').value = product.marketplaces?.ozon?.offerId || '';
     document.getElementById('ozonProductIdInput').value = product.marketplaces?.ozon?.productId || '';
     document.getElementById('ozonWarehouseIdInput').value = product.marketplaces?.ozon?.warehouseId || '';
+  } else {
+    document.getElementById('wbEnabledInput').checked = state.stores.some((store) => store.marketplace === 'wb');
+    document.getElementById('ozonEnabledInput').checked = state.stores.some((store) => store.marketplace === 'ozon');
   }
 
   openModal('productModal');
