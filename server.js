@@ -12,6 +12,7 @@ const MOYSKLAD_BASE_URL = 'https://api.moysklad.ru/api/remap/1.2';
 const WB_API_URL = 'https://marketplace-api.wildberries.ru';
 const OZON_API_URL = 'https://api-seller.ozon.ru';
 const CHUNK_SIZE = 1000;
+const AUTO_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -22,6 +23,7 @@ const MIME_TYPES = {
   '.jpg': 'image/jpeg',
   '.ico': 'image/x-icon',
 };
+let syncInProgress = false;
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -43,6 +45,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, async () => {
   await ensureStateFile();
   console.log(`Inventory Sync Hub running on http://localhost:${PORT}`);
+  startAutoSync();
 });
 
 async function handleApi(req, res, requestUrl) {
@@ -90,6 +93,7 @@ async function handleApi(req, res, requestUrl) {
         name: product.name,
         sku: product.sku,
         stock: product.stock,
+        marketplaces: mergeImportedMarketplaces(existing.marketplaces, product.sku),
         source: 'moysklad',
         sourceId: product.sourceId,
         updatedAt: new Date().toISOString(),
@@ -169,83 +173,12 @@ async function handleApi(req, res, requestUrl) {
   }
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/sync') {
-    const state = await readState();
-    if (!state.stores.length) {
-      throw createHttpError(400, 'Добавьте хотя бы один магазин WB или Ozon.');
-    }
-
-    const syncAt = new Date().toISOString();
-    const summary = [];
-
-    for (const store of state.stores) {
-      const products = state.products.filter((product) => isProductLinked(product, store.marketplace));
-      if (!products.length) {
-        summary.push({ storeId: store.id, name: store.name, marketplace: store.marketplace, synced: 0, skipped: 0, failed: 0 });
-        continue;
-      }
-
-      const result =
-        store.marketplace === 'wb'
-          ? await syncWildberriesStore(store, products)
-          : await syncOzonStore(store, products);
-
-      const successIds = new Set(result.successIds);
-      const failureIds = new Map(result.failures.map((item) => [item.productId, item.message]));
-      const skippedIds = new Map(result.skipped.map((item) => [item.productId, item.message]));
-
-      state.products = state.products.map((product) => {
-        if (!products.some((item) => item.id === product.id)) {
-          return product;
-        }
-
-        const log = product.lastSync || {};
-        if (successIds.has(product.id)) {
-          return {
-            ...product,
-            lastSyncedAt: syncAt,
-            lastSync: {
-              ...log,
-              [store.id]: { status: 'success', syncedAt: syncAt, message: `Остаток отправлен в ${store.name}.` },
-            },
-          };
-        }
-
-        if (failureIds.has(product.id)) {
-          return {
-            ...product,
-            lastSync: {
-              ...log,
-              [store.id]: { status: 'error', syncedAt: syncAt, message: failureIds.get(product.id) },
-            },
-          };
-        }
-
-        if (skippedIds.has(product.id)) {
-          return {
-            ...product,
-            lastSync: {
-              ...log,
-              [store.id]: { status: 'skipped', syncedAt: syncAt, message: skippedIds.get(product.id) },
-            },
-          };
-        }
-
-        return product;
-      });
-
-      summary.push({
-        storeId: store.id,
-        name: store.name,
-        marketplace: store.marketplace,
-        synced: result.successIds.length,
-        skipped: result.skipped.length,
-        failed: result.failures.length,
-      });
-    }
-
-    state.lastSyncAt = syncAt;
-    await writeState(state);
-    sendJson(res, 200, { message: 'Синхронизация завершена.', summary, state: sanitizeState(state) });
+    const result = await runSyncJob('manual');
+    sendJson(res, 200, {
+      message: 'Синхронизация завершена.',
+      summary: result.summary,
+      state: sanitizeState(result.state),
+    });
     return;
   }
 
@@ -472,6 +405,32 @@ function createStoredProduct(product, source = 'moysklad') {
   };
 }
 
+function createDefaultMarketplacesForSku(sku) {
+  return {
+    wb: { enabled: true, sku, chrtId: '' },
+    ozon: { enabled: true, offerId: sku, productId: '', warehouseId: '' },
+  };
+}
+
+function mergeImportedMarketplaces(existingMarketplaces, sku) {
+  const defaults = createDefaultMarketplacesForSku(sku);
+  const current = existingMarketplaces || {};
+
+  return {
+    wb: {
+      enabled: current.wb?.enabled ?? defaults.wb.enabled,
+      sku: current.wb?.sku || defaults.wb.sku,
+      chrtId: current.wb?.chrtId || '',
+    },
+    ozon: {
+      enabled: current.ozon?.enabled ?? defaults.ozon.enabled,
+      offerId: current.ozon?.offerId || defaults.ozon.offerId,
+      productId: current.ozon?.productId || '',
+      warehouseId: current.ozon?.warehouseId || '',
+    },
+  };
+}
+
 async function verifyMoySkladConnection(config) {
   const normalizedConfig = { ...config, baseUrl: normalizeMoySkladBaseUrl(config.baseUrl) };
   const response = await fetch(`${normalizedConfig.baseUrl}/entity/organization?limit=1`, {
@@ -517,10 +476,7 @@ async function fetchMoySkladProducts(config) {
           name: row.name || row.article || row.code || row.id,
           sku: row.code || row.article || row.id,
           stock: normalizeImportedStock(row.stock ?? row.quantity ?? 0),
-          marketplaces: {
-            wb: { enabled: false, sku: '', chrtId: '' },
-            ozon: { enabled: false, offerId: '', productId: '', warehouseId: '' },
-          },
+          marketplaces: createDefaultMarketplacesForSku(row.code || row.article || row.id),
         })),
     );
 
@@ -612,6 +568,111 @@ function buildMoySkladHeaders(config) {
 
 function isProductLinked(product, marketplace) {
   return Boolean(product.marketplaces?.[marketplace]?.enabled);
+}
+
+function startAutoSync() {
+  setInterval(async () => {
+    try {
+      await runSyncJob('auto');
+    } catch (error) {
+      console.error('[auto-sync]', error.message);
+    }
+  }, AUTO_SYNC_INTERVAL_MS);
+
+  console.log(`Automatic stock sync enabled every ${AUTO_SYNC_INTERVAL_MS / 60000} minutes.`);
+}
+
+async function runSyncJob(trigger = 'manual') {
+  if (syncInProgress) {
+    if (trigger === 'auto') {
+      return null;
+    }
+    throw createHttpError(409, 'Синхронизация уже выполняется.');
+  }
+
+  syncInProgress = true;
+
+  try {
+    const state = await readState();
+    if (!state.stores.length) {
+      throw createHttpError(400, 'Добавьте хотя бы один магазин WB или Ozon.');
+    }
+
+    const syncAt = new Date().toISOString();
+    const summary = [];
+
+    for (const store of state.stores) {
+      const products = state.products.filter((product) => isProductLinked(product, store.marketplace));
+      if (!products.length) {
+        summary.push({ storeId: store.id, name: store.name, marketplace: store.marketplace, synced: 0, skipped: 0, failed: 0 });
+        continue;
+      }
+
+      const result =
+        store.marketplace === 'wb'
+          ? await syncWildberriesStore(store, products)
+          : await syncOzonStore(store, products);
+
+      const successIds = new Set(result.successIds);
+      const failureIds = new Map(result.failures.map((item) => [item.productId, item.message]));
+      const skippedIds = new Map(result.skipped.map((item) => [item.productId, item.message]));
+
+      state.products = state.products.map((product) => {
+        if (!products.some((item) => item.id === product.id)) {
+          return product;
+        }
+
+        const log = product.lastSync || {};
+        if (successIds.has(product.id)) {
+          return {
+            ...product,
+            lastSyncedAt: syncAt,
+            lastSync: {
+              ...log,
+              [store.id]: { status: 'success', syncedAt: syncAt, message: `Остаток отправлен в ${store.name}.` },
+            },
+          };
+        }
+
+        if (failureIds.has(product.id)) {
+          return {
+            ...product,
+            lastSync: {
+              ...log,
+              [store.id]: { status: 'error', syncedAt: syncAt, message: failureIds.get(product.id) },
+            },
+          };
+        }
+
+        if (skippedIds.has(product.id)) {
+          return {
+            ...product,
+            lastSync: {
+              ...log,
+              [store.id]: { status: 'skipped', syncedAt: syncAt, message: skippedIds.get(product.id) },
+            },
+          };
+        }
+
+        return product;
+      });
+
+      summary.push({
+        storeId: store.id,
+        name: store.name,
+        marketplace: store.marketplace,
+        synced: result.successIds.length,
+        skipped: result.skipped.length,
+        failed: result.failures.length,
+      });
+    }
+
+    state.lastSyncAt = syncAt;
+    await writeState(state);
+    return { state, summary };
+  } finally {
+    syncInProgress = false;
+  }
 }
 
 async function syncWildberriesStore(store, products) {
