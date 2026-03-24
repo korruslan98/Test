@@ -1,0 +1,13 @@
+{
+  "name": "inventory-sync-hub",
+  "version": "1.0.0",
+  "description": "Сайт для выгрузки товаров из МойСклад и синхронизации остатков с WB и Ozon",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
