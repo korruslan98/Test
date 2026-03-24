@@ -45,6 +45,8 @@ function bindEvents() {
   document.getElementById('openMoySkladModal').addEventListener('click', () => openModal('moyskladModal'));
   document.getElementById('openStoreModal').addEventListener('click', () => openModal('storeModal'));
   document.getElementById('addProductButton').addEventListener('click', () => openProductModal());
+  document.getElementById('bulkEnableWbButton').addEventListener('click', () => bulkEnableMarketplace('wb'));
+  document.getElementById('bulkEnableOzonButton').addEventListener('click', () => bulkEnableMarketplace('ozon'));
   document.getElementById('importProductsButton').addEventListener('click', importProducts);
   document.getElementById('syncAllButton').addEventListener('click', syncProducts);
 
@@ -422,6 +424,17 @@ async function syncProducts() {
     .join(' · ');
 
   showMessage('success', `${data.message} ${summaryText}`);
+  applyState(data.state);
+  render();
+}
+
+async function bulkEnableMarketplace(marketplace) {
+  const data = await api('/api/products/bulk-marketplace', {
+    method: 'POST',
+    body: JSON.stringify({ marketplace, enabled: true }),
+  });
+
+  showMessage('success', data.message);
   applyState(data.state);
   render();
 }

@@ -142,6 +142,26 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
+  if (req.method === 'POST' && requestUrl.pathname === '/api/products/bulk-marketplace') {
+    const payload = normalizeBulkMarketplacePayload(await readJsonBody(req));
+    const state = await readState();
+
+    state.products = state.products.map((product) => ({
+      ...product,
+      marketplaces: applyBulkMarketplaceFlag(product, payload.marketplace, payload.enabled),
+      updatedAt: new Date().toISOString(),
+    }));
+
+    await writeState(state);
+    sendJson(res, 200, {
+      message: payload.enabled
+        ? `Подключение ${labelForMarketplace(payload.marketplace)} включено для всех товаров.`
+        : `Подключение ${labelForMarketplace(payload.marketplace)} выключено для всех товаров.`,
+      state: sanitizeState(state),
+    });
+    return;
+  }
+
   if (req.method === 'PUT' && requestUrl.pathname.startsWith('/api/products/')) {
     const productId = requestUrl.pathname.split('/').pop();
     const payload = normalizeProductPayload(await readJsonBody(req));
@@ -354,6 +374,14 @@ function normalizeStorePayload(body) {
   };
 }
 
+function normalizeBulkMarketplacePayload(body) {
+  const marketplace = body.marketplace === 'ozon' ? 'ozon' : 'wb';
+  return {
+    marketplace,
+    enabled: body.enabled !== false,
+  };
+}
+
 function normalizeProductPayload(body) {
   const wbEnabled = Boolean(body.marketplaces?.wb?.enabled);
   const ozonEnabled = Boolean(body.marketplaces?.ozon?.enabled);
@@ -430,6 +458,38 @@ function mergeImportedMarketplaces(existingMarketplaces, sku) {
       warehouseId: current.ozon?.warehouseId || '',
     },
   };
+}
+
+function applyBulkMarketplaceFlag(product, marketplace, enabled) {
+  const current = product.marketplaces || {};
+  const defaults = createDefaultMarketplacesForSku(product.sku);
+
+  if (marketplace === 'wb') {
+    return {
+      ...current,
+      wb: {
+        enabled,
+        sku: current.wb?.sku || defaults.wb.sku,
+        chrtId: current.wb?.chrtId || '',
+      },
+      ozon: current.ozon || defaults.ozon,
+    };
+  }
+
+  return {
+    ...current,
+    wb: current.wb || defaults.wb,
+    ozon: {
+      enabled,
+      offerId: current.ozon?.offerId || defaults.ozon.offerId,
+      productId: current.ozon?.productId || '',
+      warehouseId: current.ozon?.warehouseId || '',
+    },
+  };
+}
+
+function labelForMarketplace(marketplace) {
+  return marketplace === 'wb' ? 'WB' : 'Ozon';
 }
 
 async function verifyMoySkladConnection(config) {
