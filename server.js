@@ -274,12 +274,60 @@ function defaultState() {
 async function readState() {
   await ensureStateFile();
   const raw = await fs.readFile(STATE_FILE, 'utf8');
-  const parsed = JSON.parse(raw);
-  return { ...defaultState(), ...parsed };
+  try {
+    const parsed = JSON.parse(raw);
+    return { ...defaultState(), ...parsed };
+  } catch (error) {
+    const brokenStatePath = path.join(DATA_DIR, `app-state.corrupted-${Date.now()}.json`);
+
+    try {
+      await fs.rename(STATE_FILE, brokenStatePath);
+      await writeState(defaultState());
+      return defaultState();
+    } catch {
+      throw createHttpError(
+        500,
+        'Файл состояния повреждён после неудачной записи. Освободите место на диске и перезапустите приложение.',
+      );
+    }
+  }
 }
 
 async function writeState(state) {
-  await fs.writeFile(STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  const preparedState = compactStateForStorage(state);
+  const tempFile = `${STATE_FILE}.${process.pid}.tmp`;
+
+  try {
+    await fs.writeFile(tempFile, JSON.stringify(preparedState, null, 2), 'utf8');
+    await fs.rename(tempFile, STATE_FILE);
+  } catch (error) {
+    await fs.rm(tempFile, { force: true }).catch(() => {});
+    if (error.code === 'ENOSPC') {
+      throw createHttpError(
+        507,
+        'На диске закончилось место. Освободите место и повторите операцию — текущий файл состояния не был перезаписан.',
+      );
+    }
+    throw error;
+  }
+}
+
+function compactStateForStorage(state) {
+  return {
+    ...state,
+    products: (state.products || []).map((product) => ({
+      ...product,
+      lastSync: Object.fromEntries(
+        Object.entries(product.lastSync || {}).map(([storeId, info]) => [
+          storeId,
+          {
+            ...info,
+            message: truncateText(info?.message || '', 280),
+          },
+        ]),
+      ),
+    })),
+  };
 }
 
 function sanitizeState(state) {
@@ -690,7 +738,11 @@ async function runSyncJob(trigger = 'manual') {
             lastSyncedAt: syncAt,
             lastSync: {
               ...log,
-              [store.id]: { status: 'success', syncedAt: syncAt, message: `Остаток отправлен в ${store.name}.` },
+              [store.id]: {
+                status: 'success',
+                syncedAt: syncAt,
+                message: truncateText(`Остаток отправлен в ${store.name}.`, 280),
+              },
             },
           };
         }
@@ -700,7 +752,11 @@ async function runSyncJob(trigger = 'manual') {
             ...product,
             lastSync: {
               ...log,
-              [store.id]: { status: 'error', syncedAt: syncAt, message: failureIds.get(product.id) },
+              [store.id]: {
+                status: 'error',
+                syncedAt: syncAt,
+                message: truncateText(failureIds.get(product.id), 280),
+              },
             },
           };
         }
@@ -710,7 +766,11 @@ async function runSyncJob(trigger = 'manual') {
             ...product,
             lastSync: {
               ...log,
-              [store.id]: { status: 'skipped', syncedAt: syncAt, message: skippedIds.get(product.id) },
+              [store.id]: {
+                status: 'skipped',
+                syncedAt: syncAt,
+                message: truncateText(skippedIds.get(product.id), 280),
+              },
             },
           };
         }
@@ -760,7 +820,12 @@ async function syncWildberriesStore(store, products) {
 
     if (!response.ok) {
       const message = await safeReadText(response);
-      failures.push(...chunk.map((item) => ({ productId: item.productId, message: `WB ${store.name}: ${message || response.statusText}` })));
+      failures.push(
+        ...chunk.map((item) => ({
+          productId: item.productId,
+          message: truncateText(`WB ${store.name}: ${message || response.statusText}`, 280),
+        })),
+      );
       continue;
     }
 
@@ -786,7 +851,7 @@ function buildWbStockEntries(product, wbCardMap) {
   }
 
   if (!mapping.sku) {
-    return [{ productId: product.id, type: 'skip', message: 'У товара не указан WB артикул продавца или chrtId.' }];
+    return [{ productId: product.id, type: 'skip', message: truncateText('У товара не указан WB артикул продавца или chrtId.', 280) }];
   }
 
   const resolvedSkus = wbCardMap.get(mapping.sku);
@@ -887,10 +952,10 @@ async function syncOzonStore(store, products) {
     const warehouseId = mapping.warehouseId || store.warehouseId;
 
     if (!mapping.offerId && !mapping.productId) {
-      return { productId: product.id, type: 'skip', message: 'У товара не указан Ozon offer_id или product_id.' };
+      return { productId: product.id, type: 'skip', message: truncateText('У товара не указан Ozon offer_id или product_id.', 280) };
     }
     if (!warehouseId) {
-      return { productId: product.id, type: 'skip', message: 'Не указан warehouse_id для Ozon.' };
+      return { productId: product.id, type: 'skip', message: truncateText('Не указан warehouse_id для Ozon.', 280) };
     }
 
     return {
@@ -923,7 +988,12 @@ async function syncOzonStore(store, products) {
     const data = await safeReadJson(response);
     if (!response.ok) {
       const message = data?.message || data?.error || response.statusText;
-      failures.push(...chunk.map((item) => ({ productId: item.productId, message: `Ozon ${store.name}: ${message}` })));
+      failures.push(
+        ...chunk.map((item) => ({
+          productId: item.productId,
+          message: truncateText(`Ozon ${store.name}: ${message}`, 280),
+        })),
+      );
       continue;
     }
 
@@ -933,7 +1003,10 @@ async function syncOzonStore(store, products) {
         const key = String(item.stock.offer_id || item.stock.product_id);
         const resultItem = resultMap.get(key);
         if (resultItem?.errors?.length) {
-          failures.push({ productId: item.productId, message: `Ozon ${store.name}: ${resultItem.errors.join('; ')}` });
+          failures.push({
+            productId: item.productId,
+            message: truncateText(`Ozon ${store.name}: ${resultItem.errors.join('; ')}`, 280),
+          });
         } else {
           successIds.push(item.productId);
         }
@@ -994,6 +1067,14 @@ function maskSecret(value) {
     return '••••••';
   }
   return `${value.slice(0, 4)}•••${value.slice(-4)}`;
+}
+
+function truncateText(value, maxLength = 280) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 1)}…`;
 }
 
 async function safeReadText(response) {
