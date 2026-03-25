@@ -94,6 +94,11 @@ async function handleApi(req, res, requestUrl) {
         name: product.name,
         sku: product.sku,
         stock: product.stock,
+        imageUrl: product.imageUrl || existing.imageUrl || '',
+        images: product.images || existing.images || [],
+        description: product.description || existing.description || '',
+        characteristics: product.characteristics || existing.characteristics || [],
+        wholesalePrice: product.wholesalePrice ?? existing.wholesalePrice ?? null,
         marketplaces: mergeImportedMarketplaces(existing.marketplaces, product.sku),
         source: 'moysklad',
         sourceId: product.sourceId,
@@ -471,6 +476,11 @@ function createStoredProduct(product, source = 'moysklad') {
     name: product.name,
     sku: product.sku,
     stock: normalizeStock(product.stock),
+    imageUrl: product.imageUrl || '',
+    images: product.images || [],
+    description: product.description || '',
+    characteristics: product.characteristics || [],
+    wholesalePrice: product.wholesalePrice ?? null,
     marketplaces: product.marketplaces || {
       wb: { enabled: false, sku: '', chrtId: '' },
       ozon: { enabled: false, offerId: '', productId: '', warehouseId: '' },
@@ -585,6 +595,16 @@ async function fetchMoySkladProducts(config) {
           name: row.name || row.article || row.code || row.id,
           sku: row.code || row.article || row.id,
           stock: normalizeImportedStock(row.stock ?? row.quantity ?? 0),
+          imageUrl: extractPrimaryImageUrl(row),
+          images: extractImageUrls(row),
+          description: cleanString(row.description),
+          characteristics: Array.isArray(row.characteristics)
+            ? row.characteristics.map((item) => ({
+                name: item?.name || '',
+                value: item?.value || '',
+              }))
+            : [],
+          wholesalePrice: extractWholesalePrice(row),
           marketplaces: createDefaultMarketplacesForSku(row.code || row.article || row.id),
         })),
     );
@@ -1049,6 +1069,48 @@ function normalizeImportedStock(value) {
     return 0;
   }
   return Math.max(0, Math.floor(stock));
+}
+
+function extractPrimaryImageUrl(row) {
+  const direct = row?.image?.miniature?.href || row?.image?.meta?.downloadHref || '';
+  if (direct) {
+    return direct;
+  }
+
+  const firstFromList =
+    row?.images?.rows?.[0]?.miniature?.href ||
+    row?.images?.rows?.[0]?.meta?.downloadHref ||
+    '';
+  return firstFromList;
+}
+
+function extractImageUrls(row) {
+  const list = row?.images?.rows || [];
+  const urls = list
+    .map((item) => item?.miniature?.href || item?.meta?.downloadHref || '')
+    .filter(Boolean);
+
+  if (!urls.length && row?.image) {
+    const one = extractPrimaryImageUrl(row);
+    return one ? [one] : [];
+  }
+
+  return urls;
+}
+
+function extractWholesalePrice(row) {
+  const prices = Array.isArray(row?.salePrices) ? row.salePrices : [];
+  if (!prices.length) {
+    return null;
+  }
+
+  const wholesale = prices.find((item) => /опт|wholesale/i.test(item?.priceType?.name || '')) || prices[0];
+  const value = Number(wholesale?.value);
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  return value / 100;
 }
 
 function normalizeStock(value) {

@@ -16,7 +16,7 @@ const dom = {
   wbStoresCount: document.getElementById('wbStoresCount'),
   ozonStoresCount: document.getElementById('ozonStoresCount'),
   storesList: document.getElementById('storesList'),
-  productsTableBody: document.getElementById('productsTableBody'),
+  productsGrid: document.getElementById('productsGrid'),
   messages: document.getElementById('messages'),
   productSearch: document.getElementById('productSearch'),
   marketFilter: document.getElementById('marketFilter'),
@@ -177,47 +177,52 @@ function renderProducts() {
     return matchesQuery && matchesFilter;
   });
 
-  dom.productsTableBody.innerHTML = '';
+  dom.productsGrid.innerHTML = '';
   if (!visible.length) {
-    dom.productsTableBody.append(document.getElementById('emptyProductsTemplate').content.cloneNode(true));
+    dom.productsGrid.append(document.getElementById('emptyProductsTemplate').content.cloneNode(true));
     return;
   }
 
   visible.forEach((product) => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>
-        <div class="product-cell">
+    const card = document.createElement('article');
+    card.className = 'product-card';
+    card.innerHTML = `
+      <button type="button" class="product-card-open" data-open-product="${product.id}">
+        <img class="product-thumb" src="${escapeHtml(product.imageUrl || '/placeholder-product.svg')}" alt="${escapeHtml(product.name)}" />
+        <div class="product-card-body">
           <strong>${escapeHtml(product.name)}</strong>
-          <span class="muted">Источник: ${product.source === 'moysklad' ? 'МойСклад' : 'Ручной товар'}</span>
+          <span class="muted">${escapeHtml(product.sku)}</span>
+          <div class="badge-row">
+            <span class="stock-pill">${product.stock} шт.</span>
+            <span class="sync-pill">${formatPrice(product.wholesalePrice)}</span>
+          </div>
+          <div class="market-badges">${renderMarketplaceBadges(product)}</div>
+          <div class="status-badges">${renderSyncStatuses(product)}</div>
         </div>
-      </td>
-      <td>${escapeHtml(product.sku)}</td>
-      <td><span class="stock-pill">${product.stock} шт.</span></td>
-      <td>
-        <div class="market-badges">${renderMarketplaceBadges(product)}</div>
-      </td>
-      <td>
-        <div class="status-badges">${renderSyncStatuses(product)}</div>
-      </td>
-      <td>
-        <div class="badge-row">
-          <button type="button" class="secondary-btn" data-edit-product="${product.id}">Редактировать</button>
-          <button type="button" class="icon-btn" data-delete-product="${product.id}">Удалить</button>
-        </div>
-      </td>
+      </button>
+      <div class="badge-row">
+        <button type="button" class="secondary-btn" data-edit-product="${product.id}">Редактировать</button>
+        <button type="button" class="icon-btn" data-delete-product="${product.id}">Удалить</button>
+      </div>
     `;
-    dom.productsTableBody.append(row);
+    dom.productsGrid.append(card);
   });
 
-  dom.productsTableBody.querySelectorAll('[data-edit-product]').forEach((button) => {
+  dom.productsGrid.querySelectorAll('[data-open-product]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const product = state.products.find((item) => item.id === button.dataset.openProduct);
+      openProductDetails(product);
+    });
+  });
+
+  dom.productsGrid.querySelectorAll('[data-edit-product]').forEach((button) => {
     button.addEventListener('click', () => {
       const product = state.products.find((item) => item.id === button.dataset.editProduct);
       openProductModal(product);
     });
   });
 
-  dom.productsTableBody.querySelectorAll('[data-delete-product]').forEach((button) => {
+  dom.productsGrid.querySelectorAll('[data-delete-product]').forEach((button) => {
     button.addEventListener('click', () => removeProduct(button.dataset.deleteProduct));
   });
 }
@@ -329,6 +334,46 @@ function openProductModal(product = null) {
   }
 
   openModal('productModal');
+}
+
+function openProductDetails(product) {
+  if (!product) return;
+
+  document.getElementById('detailsTitle').textContent = product.name || 'Товар';
+  document.getElementById('detailsSku').textContent = product.sku || '—';
+  document.getElementById('detailsStock').textContent = `${product.stock ?? 0} шт.`;
+  document.getElementById('detailsPrice').textContent = formatPrice(product.wholesalePrice);
+  document.getElementById('detailsDescription').textContent = product.description || 'Описание отсутствует.';
+
+  const images = document.getElementById('detailsImages');
+  images.innerHTML = '';
+  const sourceImages = Array.isArray(product.images) && product.images.length ? product.images : [product.imageUrl].filter(Boolean);
+  if (!sourceImages.length) {
+    images.innerHTML = '<div class="empty-state compact">Нет изображений</div>';
+  } else {
+    sourceImages.forEach((src) => {
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = product.name || 'Товар';
+      img.className = 'details-image';
+      images.append(img);
+    });
+  }
+
+  const characteristics = document.getElementById('detailsCharacteristics');
+  characteristics.innerHTML = '';
+  const list = Array.isArray(product.characteristics) ? product.characteristics : [];
+  if (!list.length) {
+    characteristics.innerHTML = '<li class="muted">Характеристики отсутствуют.</li>';
+  } else {
+    list.forEach((item) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<strong>${escapeHtml(item.name || 'Параметр')}:</strong> ${escapeHtml(item.value || '—')}`;
+      characteristics.append(li);
+    });
+  }
+
+  openModal('productDetailsModal');
 }
 
 async function handleMoySkladSubmit(event) {
@@ -503,4 +548,12 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function formatPrice(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 'Опт. цена: —';
+  }
+
+  return `Опт. цена: ${new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 2 }).format(value)}`;
 }

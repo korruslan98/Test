@@ -192,15 +192,31 @@ button {
 
 .tabs-card {
   padding: 20px;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 20px;
 }
 
 .tab-panel {
   display: none;
-  margin-top: 16px;
 }
 
 .tab-panel.active {
   display: block;
+}
+
+.tab-content {
+  min-width: 0;
+}
+
+.toc-sidebar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  position: sticky;
+  top: 20px;
+  height: fit-content;
 }
 
 .panel {
@@ -253,32 +269,43 @@ select {
   padding: 12px 14px;
 }
 
-.table-wrap {
-  overflow: auto;
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  padding: 14px 10px;
-  text-align: left;
-  vertical-align: top;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-}
-
-th {
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.product-cell {
+.product-card {
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.6);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
+}
+
+.product-card-open {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.product-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #0b1220;
+}
+
+.product-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .stock-pill,
@@ -484,6 +511,47 @@ th {
   gap: 14px;
 }
 
+.details-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.details-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  align-content: start;
+}
+
+.details-image {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  object-fit: cover;
+  aspect-ratio: 1 / 1;
+}
+
+.details-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.details-characteristics {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .mapping-top {
   justify-content: space-between;
   align-items: center;
@@ -531,7 +599,9 @@ th {
   .grid-2,
   .grid-3,
   .marketplace-summary,
-  .stats-grid {
+  .stats-grid,
+  .tabs-card,
+  .details-layout {
     grid-template-columns: 1fr;
   }
 

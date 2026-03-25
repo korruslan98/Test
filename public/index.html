@@ -77,12 +77,14 @@
         </section>
 
         <section class="tabs-card">
-          <div class="tabs-header">
+          <aside class="tabs-header toc-sidebar">
+            <span class="eyebrow">Оглавление</span>
             <button class="tab-btn active" data-tab="catalog">Каталог</button>
             <button class="tab-btn" data-tab="marketplaces">Маркетплейсы</button>
             <button class="tab-btn" data-tab="instructions">Как это работает</button>
-          </div>
+          </aside>
 
+          <div class="tab-content">
           <div class="tab-panel active" data-panel="catalog">
             <section class="panel">
               <div class="panel-header">
@@ -113,21 +115,7 @@
                 </label>
               </div>
 
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Товар</th>
-                      <th>SKU</th>
-                      <th>Остаток</th>
-                      <th>Маркетплейсы</th>
-                      <th>Статус</th>
-                      <th>Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody id="productsTableBody"></tbody>
-                </table>
-              </div>
+              <div class="products-grid" id="productsGrid"></div>
             </section>
           </div>
 
@@ -188,6 +176,7 @@
                 </article>
               </div>
             </section>
+          </div>
           </div>
         </section>
 
@@ -373,6 +362,30 @@
       </form>
     </dialog>
 
+    <dialog id="productDetailsModal" class="modal">
+      <div class="modal-card wide">
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow">Карточка товара</span>
+            <h3 id="detailsTitle">—</h3>
+          </div>
+          <button type="button" class="icon-btn" data-close-modal="productDetailsModal">✕</button>
+        </div>
+        <div class="details-layout">
+          <div id="detailsImages" class="details-images"></div>
+          <div class="details-info">
+            <div class="detail-row"><strong>SKU:</strong> <span id="detailsSku">—</span></div>
+            <div class="detail-row"><strong>Остаток:</strong> <span id="detailsStock">—</span></div>
+            <div class="detail-row"><strong>Оптовая цена:</strong> <span id="detailsPrice">—</span></div>
+            <div class="detail-row"><strong>Описание:</strong></div>
+            <p id="detailsDescription" class="muted">—</p>
+            <div class="detail-row"><strong>Характеристики:</strong></div>
+            <ul id="detailsCharacteristics" class="details-characteristics"></ul>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
     <template id="emptyStoresTemplate">
       <div class="empty-state">
         <p>Пока нет подключённых магазинов.</p>
@@ -381,14 +394,10 @@
     </template>
 
     <template id="emptyProductsTemplate">
-      <tr>
-        <td colspan="6">
-          <div class="empty-state compact">
-            <p>Каталог пуст.</p>
-            <span>Импортируйте товары из МойСклад или добавьте товар вручную.</span>
-          </div>
-        </td>
-      </tr>
+      <div class="empty-state compact">
+        <p>Каталог пуст.</p>
+        <span>Импортируйте товары из МойСклад или добавьте товар вручную.</span>
+      </div>
     </template>
 
     <script src="app.js"></script>
