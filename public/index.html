@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#081120" />
+    <title>Inventory Sync Hub</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <span class="eyebrow">Inventory Sync Hub</span>
+          <h1>МойСклад → каталог → WB / Ozon</h1>
+          <p>
+            Полноценная веб-панель: импортирует товары из МойСклад, хранит каталог на сервере и
+            отправляет реальные остатки в Wildberries и Ozon по вашим API-ключам.
+          </p>
+        </div>
+
+        <div class="status-card">
+          <div>
+            <span class="eyebrow">Сервер</span>
+            <strong id="healthStatus">Проверка…</strong>
+          </div>
+          <div>
+            <span class="eyebrow">Последний импорт</span>
+            <strong id="lastImport">—</strong>
+          </div>
+          <div>
+            <span class="eyebrow">Последняя синхронизация</span>
+            <strong id="lastSync">—</strong>
+          </div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <section class="telegram-banner hidden" id="telegramBanner">
+          <div>
+            <span class="eyebrow">Telegram Mini App</span>
+            <strong id="telegramUserLabel">Запущено в Telegram</strong>
+            <p class="muted">Кнопка «Синхронизировать остатки» также продублирована в Main Button Telegram.</p>
+          </div>
+        </section>
+
+        <section class="hero-card">
+          <div>
+            <span class="eyebrow">Интеграции</span>
+            <h2>Рабочая связка для каталога и остатков</h2>
+            <p>
+              Сначала подключите МойСклад, затем импортируйте товары и задайте реальные идентификаторы
+              для WB/Ozon. Код товара из МойСклад автоматически подставляется в артикул продавца WB и
+              в `offer_id` Ozon, а остатки синхронизируются автоматически каждые 15 минут.
+            </p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" id="openMoySkladModal">Подключить МойСклад</button>
+            <button class="secondary-btn" id="importProductsButton">Импортировать товары</button>
+            <button class="primary-btn" id="syncAllButton">Синхронизировать остатки</button>
+          </div>
+        </section>
+
+        <section class="stats-grid">
+          <article class="stat-card">
+            <span>Товаров в каталоге</span>
+            <strong id="productsCount">0</strong>
+            <small>Хранятся на сервере, без лимита в интерфейсе</small>
+          </article>
+          <article class="stat-card">
+            <span>Подключено магазинов</span>
+            <strong id="storesCount">0</strong>
+            <small>WB и Ozon</small>
+          </article>
+          <article class="stat-card">
+            <span>Товаров в синхронизации</span>
+            <strong id="syncedProductsCount">0</strong>
+            <small>С настроенными маркетплейсами</small>
+          </article>
+        </section>
+
+        <section class="tabs-card">
+          <aside class="tabs-header toc-sidebar">
+            <span class="eyebrow">Оглавление</span>
+            <button class="tab-btn active" data-tab="catalog">Каталог</button>
+            <button class="tab-btn" data-tab="marketplaces">Маркетплейсы</button>
+            <button class="tab-btn" data-tab="instructions">Как это работает</button>
+          </aside>
+
+          <div class="tab-content">
+          <div class="tab-panel active" data-panel="catalog">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <span class="eyebrow">Каталог</span>
+                  <h3>Товары и настройки синхронизации</h3>
+                </div>
+                <div class="panel-actions">
+                  <button class="secondary-btn" id="addProductButton">Добавить товар</button>
+                  <button class="secondary-btn" id="bulkEnableWbButton">Синхронизировать WB всем</button>
+                  <button class="secondary-btn" id="bulkEnableOzonButton">Синхронизировать Ozon всем</button>
+                </div>
+              </div>
+
+              <div class="toolbar">
+                <label class="field grow">
+                  <span>Поиск</span>
+                  <input id="productSearch" type="search" placeholder="Название, SKU, offer_id, магазин" />
+                </label>
+                <label class="field compact">
+                  <span>Фильтр</span>
+                  <select id="marketFilter">
+                    <option value="all">Все товары</option>
+                    <option value="wb">Только WB</option>
+                    <option value="ozon">Только Ozon</option>
+                    <option value="none">Без синхронизации</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="products-grid" id="productsGrid"></div>
+            </section>
+          </div>
+
+          <div class="tab-panel" data-panel="marketplaces">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <span class="eyebrow">Маркетплейсы</span>
+                  <h3>API-ключи магазинов</h3>
+                </div>
+                <button class="primary-btn" id="openStoreModal">Добавить токен</button>
+              </div>
+
+              <div class="marketplace-summary">
+                <div>
+                  <strong>Wildberries</strong>
+                  <span id="wbStoresCount">0 магазинов</span>
+                </div>
+                <div>
+                  <strong>Ozon</strong>
+                  <span id="ozonStoresCount">0 магазинов</span>
+                </div>
+              </div>
+
+              <div id="storesList" class="stores-list"></div>
+            </section>
+          </div>
+
+          <div class="tab-panel" data-panel="instructions">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <span class="eyebrow">Инструкция</span>
+                  <h3>Что нужно для реальной синхронизации</h3>
+                </div>
+              </div>
+
+              <div class="instruction-list">
+                <article>
+                  <strong>1. Подключите МойСклад</strong>
+                  <p>Укажите URL API, токен либо логин/пароль и сохраните подключение.</p>
+                </article>
+                <article>
+                  <strong>2. Импортируйте товары</strong>
+                  <p>Каталог будет загружен на сервер, а код товара из МойСклад автоматически станет артикулом продавца для WB и Ozon.</p>
+                </article>
+                <article>
+                  <strong>3. Добавьте магазины WB и Ozon</strong>
+                  <p>Документация WB находится на `dev.wildberries.ru`, но реальные запросы остатков отправляются на `marketplace-api.wildberries.ru`.</p>
+                </article>
+                <article>
+                  <strong>4. Настройте товарные идентификаторы</strong>
+                  <p>Если токен маркетплейса уже создан, галочка подключения включается автоматически. Для WB код товара ищется как артикул продавца, для Ozon — как offer_id.</p>
+                </article>
+                <article>
+                  <strong>5. Нажмите «Синхронизировать остатки»</strong>
+                  <p>Сервер умеет запускать синхронизацию вручную и автоматически каждые 15 минут для всех подключённых магазинов.</p>
+                </article>
+              </div>
+            </section>
+          </div>
+          </div>
+        </section>
+
+        <section class="messages" id="messages"></section>
+      </main>
+    </div>
+
+    <dialog id="moyskladModal" class="modal">
+      <form class="modal-card" id="moyskladForm" method="dialog">
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow">МойСклад</span>
+            <h3>Подключение к API</h3>
+          </div>
+          <button type="button" class="icon-btn" data-close-modal="moyskladModal">✕</button>
+        </div>
+
+        <label class="field">
+          <span>Название подключения</span>
+          <input id="moyskladNameInput" type="text" placeholder="Основной МойСклад" required />
+        </label>
+
+        <label class="field">
+          <span>URL API</span>
+          <input id="moyskladBaseUrlInput" type="text" value="https://api.moysklad.ru/api/remap/1.2" required />
+          <small class="field-hint">Можно вставить ссылку из документации `dev.moysklad.ru/doc/api/remap/1.2` — сервис автоматически заменит её на API URL.</small>
+        </label>
+
+        <label class="field">
+          <span>Режим авторизации</span>
+          <select id="moyskladAuthModeInput">
+            <option value="token">Bearer token</option>
+            <option value="basic">Логин / пароль</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span id="moyskladCredentialLabel">Токен / логин</span>
+          <input id="moyskladCredentialInput" type="text" placeholder="Введите токен или логин" required />
+        </label>
+
+        <label class="field hidden" id="moyskladSecretField">
+          <span>Пароль</span>
+          <input id="moyskladSecretInput" type="password" placeholder="Введите пароль" />
+        </label>
+
+        <div class="modal-footer">
+          <button type="button" class="secondary-btn" data-close-modal="moyskladModal">Отмена</button>
+          <button type="submit" class="primary-btn">Сохранить подключение</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="storeModal" class="modal">
+      <form class="modal-card" id="storeForm" method="dialog">
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow">Маркетплейсы</span>
+            <h3>Добавить магазин</h3>
+          </div>
+          <button type="button" class="icon-btn" data-close-modal="storeModal">✕</button>
+        </div>
+
+        <label class="field">
+          <span>Маркетплейс</span>
+          <select id="storeMarketplaceInput">
+            <option value="wb">Wildberries</option>
+            <option value="ozon">Ozon</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Название магазина</span>
+          <input id="storeNameInput" type="text" placeholder="Например, WB Москва" required />
+        </label>
+
+        <label class="field">
+          <span>ID склада / warehouse_id</span>
+          <input id="storeWarehouseInput" type="text" placeholder="Например, 12345" required />
+        </label>
+
+        <div id="wbFields">
+          <label class="field">
+            <span>WB API токен</span>
+            <input id="wbTokenInput" type="password" placeholder="WB API token" />
+          </label>
+        </div>
+
+        <div id="ozonFields" class="hidden stacked-fields">
+          <label class="field">
+            <span>Ozon Client ID</span>
+            <input id="ozonClientIdInput" type="text" placeholder="Client ID" />
+          </label>
+          <label class="field">
+            <span>Ozon API Key</span>
+            <input id="ozonApiKeyInput" type="password" placeholder="API key" />
+          </label>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="secondary-btn" data-close-modal="storeModal">Отмена</button>
+          <button type="submit" class="primary-btn">Сохранить магазин</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="productModal" class="modal">
+      <form class="modal-card wide" id="productForm" method="dialog">
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow">Каталог</span>
+            <h3 id="productModalTitle">Добавить товар</h3>
+          </div>
+          <button type="button" class="icon-btn" data-close-modal="productModal">✕</button>
+        </div>
+
+        <input id="productIdInput" type="hidden" />
+
+        <div class="grid-2">
+          <label class="field">
+            <span>Название товара</span>
+            <input id="productNameInput" type="text" required />
+          </label>
+          <label class="field">
+            <span>SKU</span>
+            <input id="productSkuInput" type="text" required />
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Остаток</span>
+          <input id="productStockInput" type="number" min="0" value="0" required />
+        </label>
+
+        <section class="mapping-card">
+          <div class="mapping-top">
+            <label class="toggle-line">
+              <input type="checkbox" id="wbEnabledInput" />
+              <span>Синхронизировать с WB</span>
+            </label>
+            <span class="chip" data-market="wb">WB</span>
+          </div>
+          <div class="grid-2" id="wbMappingFields">
+            <label class="field">
+              <span>WB SKU</span>
+              <input id="wbSkuInput" type="text" placeholder="Barcode / SKU" />
+            </label>
+            <label class="field">
+              <span>WB chrtId</span>
+              <input id="wbChrtIdInput" type="text" placeholder="Размерный ID" />
+            </label>
+          </div>
+        </section>
+
+        <section class="mapping-card">
+          <div class="mapping-top">
+            <label class="toggle-line">
+              <input type="checkbox" id="ozonEnabledInput" />
+              <span>Синхронизировать с Ozon</span>
+            </label>
+            <span class="chip" data-market="ozon">Ozon</span>
+          </div>
+          <div class="grid-3" id="ozonMappingFields">
+            <label class="field">
+              <span>Ozon offer_id</span>
+              <input id="ozonOfferIdInput" type="text" placeholder="Ваш offer_id" />
+            </label>
+            <label class="field">
+              <span>Ozon product_id</span>
+              <input id="ozonProductIdInput" type="text" placeholder="ID товара Ozon" />
+            </label>
+            <label class="field">
+              <span>warehouse_id товара</span>
+              <input id="ozonWarehouseIdInput" type="text" placeholder="Необязательно" />
+            </label>
+          </div>
+        </section>
+
+        <div class="modal-footer">
+          <button type="button" class="secondary-btn" data-close-modal="productModal">Отмена</button>
+          <button type="submit" class="primary-btn">Сохранить товар</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="productDetailsModal" class="modal">
+      <div class="modal-card wide">
+        <div class="modal-header">
+          <div>
+            <span class="eyebrow">Карточка товара</span>
+            <h3 id="detailsTitle">—</h3>
+          </div>
+          <button type="button" class="icon-btn" data-close-modal="productDetailsModal">✕</button>
+        </div>
+        <div class="details-layout">
+          <div id="detailsImages" class="details-images"></div>
+          <div class="details-info">
+            <div class="detail-row"><strong>SKU:</strong> <span id="detailsSku">—</span></div>
+            <div class="detail-row"><strong>Остаток:</strong> <span id="detailsStock">—</span></div>
+            <div class="detail-row"><strong>Оптовая цена:</strong> <span id="detailsPrice">—</span></div>
+            <div class="detail-row"><strong>Описание:</strong></div>
+            <p id="detailsDescription" class="muted">—</p>
+            <div class="detail-row"><strong>Характеристики:</strong></div>
+            <ul id="detailsCharacteristics" class="details-characteristics"></ul>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <template id="emptyStoresTemplate">
+      <div class="empty-state">
+        <p>Пока нет подключённых магазинов.</p>
+        <span>Добавьте токены WB и Ozon, чтобы включить реальную синхронизацию остатков.</span>
+      </div>
+    </template>
+
+    <template id="emptyProductsTemplate">
+      <div class="empty-state compact">
+        <p>Каталог пуст.</p>
+        <span>Импортируйте товары из МойСклад или добавьте товар вручную.</span>
+      </div>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
