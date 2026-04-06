@@ -5,6 +5,7 @@ const state = {
   lastImportAt: null,
   lastSyncAt: null,
 };
+let telegramWebApp = null;
 
 const dom = {
   healthStatus: document.getElementById('healthStatus'),
@@ -37,8 +38,53 @@ const dom = {
 bootstrap();
 
 async function bootstrap() {
+  initTelegramMiniApp();
   bindEvents();
   await Promise.all([checkHealth(), loadState()]);
+}
+
+function initTelegramMiniApp() {
+  const tg = window.Telegram?.WebApp;
+  if (!tg) {
+    return;
+  }
+
+  telegramWebApp = tg;
+  tg.ready();
+  tg.expand();
+  tg.disableVerticalSwipes?.();
+
+  document.body.classList.add('telegram-miniapp');
+  applyTelegramTheme(tg);
+  tg.onEvent('themeChanged', () => applyTelegramTheme(tg));
+
+  const user = tg.initDataUnsafe?.user;
+  const label = user?.username
+    ? `@${user.username}`
+    : [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Пользователь Telegram';
+
+  const banner = document.getElementById('telegramBanner');
+  const userLabel = document.getElementById('telegramUserLabel');
+  if (banner) banner.classList.remove('hidden');
+  if (userLabel) userLabel.textContent = `Запущено в Telegram: ${label}`;
+
+  tg.MainButton.setParams({
+    text: 'Синхронизировать остатки',
+    is_visible: true,
+    color: '#22c55e',
+    text_color: '#04110b',
+  });
+  tg.MainButton.onClick(() => syncProducts());
+}
+
+function applyTelegramTheme(tg) {
+  const params = tg.themeParams || {};
+  const root = document.documentElement;
+
+  if (params.bg_color) root.style.setProperty('--tg-bg', params.bg_color);
+  if (params.text_color) root.style.setProperty('--tg-text', params.text_color);
+  if (params.hint_color) root.style.setProperty('--tg-muted', params.hint_color);
+  if (params.button_color) root.style.setProperty('--tg-accent', params.button_color);
 }
 
 function bindEvents() {
@@ -469,6 +515,11 @@ async function syncProducts() {
     .join(' · ');
 
   showMessage('success', `${data.message} ${summaryText}`);
+  telegramWebApp?.showPopup?.({
+    title: 'Синхронизация',
+    message: summaryText || data.message,
+    buttons: [{ type: 'ok' }],
+  });
   applyState(data.state);
   render();
 }

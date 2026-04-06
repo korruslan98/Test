@@ -14,6 +14,10 @@
   --warning: #f59e0b;
   --success-soft: rgba(34, 197, 94, 0.15);
   --shadow: 0 30px 70px rgba(2, 6, 23, 0.45);
+  --tg-bg: #081120;
+  --tg-text: #e2e8f0;
+  --tg-muted: #94a3b8;
+  --tg-accent: #22c55e;
   font-family: 'Inter', system-ui, sans-serif;
 }
 
@@ -29,6 +33,12 @@ body {
     radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.18), transparent 28%),
     var(--bg);
   color: var(--text);
+}
+
+body.telegram-miniapp {
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 button,
@@ -114,6 +124,17 @@ button {
   flex-direction: column;
   gap: 24px;
   padding: 32px;
+}
+
+.telegram-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(34, 197, 94, 0.08);
 }
 
 .hero-card {

@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#081120" />
     <title>Inventory Sync Hub</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -11,6 +12,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -41,6 +43,14 @@
       </aside>
 
       <main class="content">
+        <section class="telegram-banner hidden" id="telegramBanner">
+          <div>
+            <span class="eyebrow">Telegram Mini App</span>
+            <strong id="telegramUserLabel">Запущено в Telegram</strong>
+            <p class="muted">Кнопка «Синхронизировать остатки» также продублирована в Main Button Telegram.</p>
+          </div>
+        </section>
+
         <section class="hero-card">
           <div>
             <span class="eyebrow">Интеграции</span>

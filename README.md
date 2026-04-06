@@ -45,6 +45,20 @@ http://localhost:3000
 npm run dev
 ```
 
+## Telegram Mini App
+Приложение уже готово к запуску внутри Telegram Mini Apps:
+
+1. Разместите сервис на HTTPS-домене (Telegram не откроет Mini App по `http://`).
+2. В `@BotFather` создайте бота (или используйте существующего).
+3. В BotFather настройте Mini App URL командой `Configure Mini App` и укажите ваш HTTPS URL.
+4. Добавьте кнопку запуска Mini App в меню бота.
+
+Что уже поддержано в интерфейсе:
+- автоматический `Telegram.WebApp.ready()` и `expand()`;
+- обработка Telegram темы (`themeChanged`);
+- отображение пользователя Telegram в верхней плашке;
+- Telegram Main Button для запуска синхронизации остатков.
+
 ## Как настроить
 
 ### 1. Подключить МойСклад
